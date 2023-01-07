@@ -5,6 +5,8 @@ using UnityEditor;
 using System.IO;
 using System.Linq;
 using System;
+using UnityEngine.SceneManagement;
+using UnityEditor.SceneManagement;
 
 public class MeshToPrefabs : MonoBehaviour
 {
@@ -43,9 +45,6 @@ public class MeshToPrefabs : MonoBehaviour
         }
 
 
-
-
-
     }
 
     [MenuItem("Assets/Sync Folder")]
@@ -54,18 +53,25 @@ public class MeshToPrefabs : MonoBehaviour
         // Get path then you make asign
         string folderPath = GetPath();
 
+        string meshesFolder = folderPath + "/meshes";
+        string prefabsFolder = folderPath + "/prefabs";
+        string materialsFolder = folderPath + "/materials";
+
+        string sceneName = folderPath.Substring(folderPath.LastIndexOf("/"));
+        string sceneMeshPath = meshesFolder + sceneName + ".fbx";
+
         // Create /meshes and /prefabs and /materials folders if not exist
-        if (!AssetDatabase.IsValidFolder(folderPath + "/meshes"))
+        if (!AssetDatabase.IsValidFolder(meshesFolder))
         {
             AssetDatabase.CreateFolder(folderPath, "meshes");
         }
         
-        if (!AssetDatabase.IsValidFolder(folderPath + "/prefabs"))
+        if (!AssetDatabase.IsValidFolder(prefabsFolder))
         {
             AssetDatabase.CreateFolder(folderPath, "prefabs");
         }
 
-        if (!AssetDatabase.IsValidFolder(folderPath + "/materials"))
+        if (!AssetDatabase.IsValidFolder(materialsFolder))
         {
             AssetDatabase.CreateFolder(folderPath, "materials");
         }
@@ -78,10 +84,6 @@ public class MeshToPrefabs : MonoBehaviour
 
         foreach (string meshAssetPath in meshAssetPaths)
         {
-            // Load the mesh asset
-            string path = AssetDatabase.GUIDToAssetPath(meshAssetPath);
-
-
 
             GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(meshAssetPath));
 
@@ -122,30 +124,44 @@ public class MeshToPrefabs : MonoBehaviour
             }
         }
 
+        GenerateSceneByMesh(sceneMeshPath, prefabsFolder, folderPath + sceneName + ".unity");
+
     }
 
-    static void ExtractMaterials(string assetPath, string folderPath)
+    static void GenerateSceneByMesh(string meshPath, string prefabsPath, string scenePath)
     {
-        //Try to extract materials into a subfolder
-        var assetsToReload = new HashSet<string>();
-        var materials = AssetDatabase.LoadAllAssetsAtPath(assetPath).Where(x => x.GetType() == typeof(Material)).ToArray();
-        Debug.Log(assetPath + " has " + materials.Length + " materials");
-        foreach (var material in materials)
+        // Get scene fbx
+        GameObject sceneMesh = AssetDatabase.LoadAssetAtPath<GameObject>(meshPath);
+        Transform meshTransform = sceneMesh.transform;
+
+        Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        for (int i = 0; i < meshTransform.childCount; i++)
         {
-            var newAssetPath = folderPath + "/materials/" + material.name + ".mat";
-            var error = AssetDatabase.ExtractAsset(material, newAssetPath);
-            if (String.IsNullOrEmpty(error))
-            {
-                assetsToReload.Add(assetPath);
-            }
+            // Get the child transform
+            Transform childTransform = meshTransform.GetChild(i);
+
+            // Delete all after dot in name
+            string prefabName = childTransform.name;
+            int index = prefabName.IndexOf(".");
+            prefabName = prefabName.Substring(0, index);
+                
+
+            // Get the prefab asset with the same name as the child transform
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabsPath + "/" + prefabName + ".prefab");
+
+            // Instantiate the prefab in the scene
+            GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
+
+            // Set the position and rotation of the instance to match the child transform
+            instance.transform.position = childTransform.position;
+            instance.transform.rotation = childTransform.rotation;
         }
 
-        foreach (var path in assetsToReload)
-        {
-            AssetDatabase.WriteImportSettingsIfDirty(path);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
-        }
+        // Save the scene
+        EditorSceneManager.SaveScene(newScene, scenePath);
     }
+
 
     static string GetPath()
     {
